@@ -1,0 +1,13 @@
+data/
+.env
+node_modules/
+*.zip
+import/*.json
+*.sqlite*
+*.key
+*.jks
+*.dpapi
+*.apk
+backups/
+artifacts/
+capture-sm-device-id.js

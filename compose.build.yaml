@@ -1,0 +1,4 @@
+services:
+  harbor:
+    build: .
+    image: c11-harbor:local

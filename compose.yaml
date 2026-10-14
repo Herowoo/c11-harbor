@@ -1,0 +1,25 @@
+services:
+  harbor:
+    image: ${HARBOR_IMAGE:-ghcr.io/herowoo/c11-harbor:latest}
+    platform: linux/arm64
+    restart: unless-stopped
+    ports:
+      - "${HOST_PORT:-8088}:8080"
+    environment:
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD in .env}
+      ALLOW_CONTROL: ${ALLOW_CONTROL:-false}
+      AMAP_WEB_KEY: ${AMAP_WEB_KEY:-}
+      PAIR_BASE_URL: ${PAIR_BASE_URL:-}
+      POLL_MINUTES: ${POLL_MINUTES:-5}
+      TZ: Asia/Shanghai
+      DATA_DIR: /data
+    volumes:
+      - harbor-data:/data
+      - ./import:/import:ro
+    init: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+volumes:
+  harbor-data:

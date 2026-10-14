@@ -58,7 +58,7 @@ async function load() {
     const diagnosticLabels = { soc: '电量', range: '续航', mileage: '里程', speed: '速度', gear: '挡位',
       driving: '行驶状态', locked: '锁车状态', ac: '空调状态', interiorTemperature: '车内温度',
       tires: '胎压', charging: '充电信息', position: '位置' };
-    const saveReasons = { saved: '已保存新采样', same_timestamp: '未保存：车端时间戳相同',
+    const saveReasons = { saved: '已保存新采样', snapshot_refreshed: '已更新快照：车端时间戳相同，不新增历史采样', same_timestamp: '未保存：车端时间戳相同',
       older_timestamp: '未保存：车端时间戳更早', not_saved: '未保存：需检查' };
     $('diagQuery').textContent = diagnostic ? date(diagnostic.queriedAt) : '等待新版首次读取';
     $('diagReported').textContent = diagnostic ? diagnostic.timestampMissing ? '时间缺失或无效（不能认定为新上报）' : date(diagnostic.reportedAt) : '--';

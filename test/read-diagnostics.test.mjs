@@ -25,7 +25,7 @@ test('client preserves selected timestamp and exposes wrapper timestamp candidat
   assert.equal(JSON.stringify(diagnostic).includes('FIXTURE-VIN'), false);
 });
 
-test('same timestamp with changed fields is diagnosed without changing storage policy', () => {
+test('same timestamp refreshes display snapshot and diagnostics without changing history', () => {
   const directory = mkdtempSync(join(tmpdir(), 'harbor-diagnostic-'));
   const store = new Store(directory);
   try {
@@ -36,8 +36,10 @@ test('same timestamp with changed fields is diagnosed without changing storage p
     const saved = store.addSample(incoming);
     const result = readDiagnostics(response, incoming, previous, saved, now);
     assert.equal(saved, false);
-    assert.equal(store.latest(now).soc, 80);
-    assert.equal(result.reason, 'same_timestamp');
+    assert.equal(store.latest(now).soc, 79);
+    assert.equal(store.latest(now, false).soc, 80);
+    assert.equal(result.reason, 'snapshot_refreshed');
+    assert.equal(result.snapshotUpdated, true);
     assert.deepEqual(result.changedFields, ['soc']);
     assert.equal(result.reportedAt, old);
     assert.equal(result.timestampCandidates[1].time, now);

@@ -70,3 +70,61 @@ test('an unchanged cached sample ages even without new vehicle reports, and an o
   assert.equal(aged.charging.powerKw, 10);
   store.db.close();
 });
+
+test('equal timestamp refreshes missing migrated fields and persists without rewriting historical sampling', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'c11-snapshot-migration-'));
+  const source = 1700000000000;
+  let store = new Store(directory);
+  store.saveSession({ old: { token: 'fixture-session' } });
+  store.addSample(normalize({ sts: source, '1204': 60 }, source));
+  const key = readFileSync(join(directory, 'vault.key'));
+  for (const column of ['interior_temp', 'tires_json', 'charging_json']) store.db.exec(`ALTER TABLE samples DROP COLUMN ${column}`);
+  store.db.close();
+  store = new Store(directory);
+  const received = source + 3 * 3600_000;
+  const sample = normalize({ sts: source, '1204': 60, '1349': 26, '2646': 250,
+    '1149': 1, '1177': 400, '1178': -25, '1200': 108 }, received);
+  assert.equal(store.addSample(sample), false);
+  assert.equal(store.latest(received).interiorTemperature, 26);
+  assert.equal(store.latest(received).tires[0].pressureKpa, 250);
+  assert.equal(store.latest(received).charging.powerKw, 10);
+  assert.equal(store.latest(received).charging.estimatedFinishAt, null);
+  assert.equal(store.latest(received).stale, true);
+  assert.equal(store.latest(received).sourceTime, source);
+  assert.equal(store.latest(received).receivedAt, received);
+  assert.equal(store.db.prepare('SELECT COUNT(*) AS count FROM samples').get().count, 1);
+  assert.equal(store.latest(received, false).interiorTemperature, null);
+  assert.equal(store.latest(received, false).receivedAt, source);
+  store.db.close();
+  store = new Store(directory);
+  assert.equal(store.latest(received).interiorTemperature, 26);
+  assert.equal(store.session().old.token, 'fixture-session');
+  assert.deepEqual(readFileSync(join(directory, 'vault.key')), key);
+  store.db.close();
+});
+
+test('older response cannot overwrite a refreshed snapshot; a new sample replaces it', () => {
+  const store = new Store(mkdtempSync(join(tmpdir(), 'c11-snapshot-order-')));
+  const source = 1700000000000;
+  store.addSample(normalize({ sts: source, '1204': 80 }, source));
+  store.addSample(normalize({ sts: source, '1204': 79 }, source + 1000));
+  assert.equal(store.addSample(normalize({ sts: source - 1000, '1204': 20 }, source + 2000)), false);
+  assert.equal(store.latest(source + 2000).soc, 79);
+  assert.equal(store.addSample(normalize({ sts: source + 1000, '1204': 78 }, source + 3000)), true);
+  assert.equal(store.latest(source + 3000).soc, 78);
+  assert.equal(store.setting('latestSnapshot'), null);
+  assert.equal(store.db.prepare('SELECT COUNT(*) AS count FROM samples').get().count, 2);
+  store.db.close();
+});
+
+test('snapshot changes never start a trip or alter the historical baseline for the next trip', () => {
+  const store = new Store(mkdtempSync(join(tmpdir(), 'c11-snapshot-trip-')));
+  const source = 1700000000000;
+  store.addSample(normalize({ sts: source, '1318': 100, '1319': 0 }, source));
+  store.addSample(normalize({ sts: source, '1318': 105, '1319': 20 }, source + 1000));
+  assert.equal(store.setting('activeTrip'), null);
+  assert.equal(store.trips().length, 0);
+  store.addSample(normalize({ sts: source + 60000, '1318': 102, '1319': 20 }, source + 60000));
+  assert.equal(JSON.parse(store.setting('activeTrip')).startMileage, 100);
+  store.db.close();
+});

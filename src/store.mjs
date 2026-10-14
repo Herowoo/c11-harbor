@@ -99,9 +99,16 @@ export class Store {
   session() { return this.decrypt(this.setting('session')); }
   saveSession(session) { this.set('session', this.encrypt(session)); }
   clearSession() { this.db.prepare('DELETE FROM config WHERE key=?').run('session'); }
-  latest(now = Date.now()) {
+  latest(now = Date.now(), includeSnapshot = true) {
     const row = this.db.prepare('SELECT * FROM samples ORDER BY id DESC LIMIT 1').get();
     if (!row) return null;
+    const snapshot = includeSnapshot ? JSON.parse(this.setting('latestSnapshot', 'null')) : null;
+    if (snapshot?.sourceTime === row.source_time) {
+      const result = structuredClone(snapshot);
+      result.stale = Boolean(result.stale) || now - result.sourceTime > 10 * 60_000;
+      if (result.stale && result.charging) result.charging.estimatedFinishAt = null;
+      return result;
+    }
     const stale = Boolean(row.stale) || now - row.source_time > 10 * 60_000;
     const charging = row.charging_json ? JSON.parse(row.charging_json) : null;
     if (stale && charging) charging.estimatedFinishAt = null;
@@ -115,14 +122,20 @@ export class Store {
       charging };
   }
   addSample(sample) {
-    const last = this.latest();
-    if (last && sample.sourceTime <= last.sourceTime) return false;
+    // Trip detection uses immutable historical samples, not refreshed display snapshots.
+    const last = this.latest(Date.now(), false);
+    if (last && sample.sourceTime === last.sourceTime) {
+      this.set('latestSnapshot', JSON.stringify(sample));
+      return false;
+    }
+    if (last && sample.sourceTime < last.sourceTime) return false;
     this.db.prepare(`INSERT INTO samples(source_time,received_at,mileage,soc,range_km,speed,gear,driving,locked,ac,latitude,longitude,stale,interior_temp,tires_json,charging_json)
       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(sample.sourceTime, sample.receivedAt, sample.mileage, sample.soc,
       sample.range, sample.speed, sample.gear, sample.driving ? 1 : 0,
       sample.locked === null ? null : Number(sample.locked), sample.ac === null ? null : Number(sample.ac),
       sample.position?.latitude ?? null, sample.position?.longitude ?? null, Number(sample.stale),
       sample.interiorTemperature ?? null, JSON.stringify(sample.tires ?? []), JSON.stringify(sample.charging ?? null));
+    this.db.prepare('DELETE FROM config WHERE key=?').run('latestSnapshot');
     this.detectTrip(sample, last);
     return true;
   }

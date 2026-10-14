@@ -15,8 +15,9 @@ export function readDiagnostics(raw, incoming, previous, saved, now = Date.now()
     previousReportedAt: previous?.sourceTime ?? null,
     previousReceivedAt: previous?.receivedAt ?? null,
     saved: Boolean(saved),
+    snapshotUpdated: Boolean(!saved && previous && incoming.sourceTime === previous.sourceTime),
     reason: saved ? 'saved' : !previous ? 'not_saved'
-      : incoming.sourceTime === previous.sourceTime ? 'same_timestamp' : 'older_timestamp',
+      : incoming.sourceTime === previous.sourceTime ? 'snapshot_refreshed' : 'older_timestamp',
     timestampMissing: reportedAt === null,
     changedFields: previous ? fields.filter(field =>
       JSON.stringify(incoming[field] ?? null) !== JSON.stringify(previous[field] ?? null)) : [],

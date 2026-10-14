@@ -49,6 +49,31 @@ jobs:
             type=raw,value=latest,enable={{is_default_branch}}
             type=semver,pattern={{version}}
             type=sha,format=long
+      - name: Build ARM64 test image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/arm64
+          load: true
+          tags: c11-harbor:smoke
+          build-args: APP_REVISION=${{ github.sha }}
+          provenance: false
+          cache-from: type=gha
+      - name: Verify ARM64 service starts with an empty data directory
+        run: |
+          trap 'docker rm -f c11-smoke >/dev/null 2>&1 || true' EXIT
+          docker run --platform linux/arm64 -d --name c11-smoke \
+            -e ADMIN_PASSWORD=ci-local-smoke-password \
+            -p 127.0.0.1:18088:8080 c11-harbor:smoke
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:18088/health; then
+              echo
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs c11-smoke
+          exit 1
       - name: Build and publish
         uses: docker/build-push-action@v6
         with:

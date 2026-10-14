@@ -62,7 +62,7 @@ async function load() {
       }).catch(() => {});
     }
     const age = s ? Math.round((Date.now() - s.sourceTime) / 60000) : null;
-    $('freshness').textContent = age === null ? '暂无车况' : s.stale ? age > 10 ? `旧数据 · ${age} 分钟前` : '车端时间待核对' : '车况已更新';
+    $('freshness').textContent = age === null ? '暂无车况' : s.stale || age > 10 ? age > 10 ? `旧数据 · ${age} 分钟前` : '车端时间待核对' : '车况已更新';
     $('updated').textContent = s ? `车辆上报 ${date(s.sourceTime)} · 收到于 ${date(s.receivedAt)}` : '尚未取得车况';
     $('controlState').textContent = state.lastCommand ? `${state.lastCommand.status} · ${state.lastCommand.message}` : state.controlEnabled ? '操作需要四位车辆操作密码' : '控制功能默认关闭，完成只读验证后可在 NAS 上开启。';
     $('climateButton').disabled = !state.controlEnabled || !state.connected;

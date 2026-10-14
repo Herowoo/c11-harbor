@@ -56,3 +56,17 @@ test('an existing V1 database migrates without losing its session, key or histor
   assert.equal(store.latest().tires[0].pressureKpa, 250);
   store.db.close();
 });
+
+test('an unchanged cached sample ages even without new vehicle reports, and an old charge cannot give a finish clock', () => {
+  const store = new Store(mkdtempSync(join(tmpdir(), 'c11-aging-')));
+  const sourceTime = 1700000000000;
+  store.addSample(normalize({ sts: sourceTime, '1149': 1, '1177': 400, '1178': -25,
+    '1200': 108 }, sourceTime));
+  assert.equal(store.latest(sourceTime + 60000).stale, false);
+  assert.equal(store.latest(sourceTime + 60000).charging.estimatedFinishAt, sourceTime + 108 * 60000);
+  const aged = store.latest(sourceTime + 11 * 60000);
+  assert.equal(aged.stale, true);
+  assert.equal(aged.charging.estimatedFinishAt, null);
+  assert.equal(aged.charging.powerKw, 10);
+  store.db.close();
+});

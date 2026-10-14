@@ -29,7 +29,7 @@ docker compose up -d --no-build --no-deps harbor
 
 网页“服务与会话状态”显示运行版本、构建提交、最近读取成功时间、续期结果和网关令牌到期时间。网页本身不拥有 Docker 管理权限，实际镜像更新由 NAS 的容器管理器或上述脚本完成。
 
-可在 `.env` 将 `HARBOR_IMAGE` 改为 `ghcr.io/herowoo/c11-harbor:0.2.0` 或已有 `sha-<提交 SHA>` 标签以固定版本。回退时换回旧标签后执行相同更新命令。本版数据库迁移只增加字段，保留旧记录、会话与密钥；重大迁移前仍应备份数据卷中的数据库和 `vault.key`。
+可在 `.env` 将 `HARBOR_IMAGE` 改为 `ghcr.io/herowoo/c11-harbor:0.2.1` 或已有 `sha-<提交 SHA>` 标签以固定版本。回退时换回旧标签后执行相同更新命令。本版数据库迁移只增加字段，保留旧记录、会话与密钥；重大迁移前仍应备份数据卷中的数据库和 `vault.key`。
 
 如果 GHCR 首次发布的包尚未公开，仓库拥有者需在 GitHub 包设置中将镜像可见性设为 Public；公共容器镜像允许 NAS 匿名下载。NAS 必须能够访问 `ghcr.io`。[GitHub 容器可见性说明](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry)
 

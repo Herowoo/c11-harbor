@@ -26,7 +26,7 @@ test('mobile page, login, CSRF and read-only API work without car credentials', 
     const state = await fetch(base + '/api/state', { headers: { Cookie: cookie } });
     const snapshot = await state.json();
     assert.equal(snapshot.connected, false);
-    assert.equal(snapshot.version, '0.2.0');
+    assert.equal(snapshot.version, '0.2.1');
     assert.equal(snapshot.authHealth.lastSuccessfulPollAt, null);
     assert.equal(snapshot.authHealth.gatewayRenewals, 0);
     assert.ok(!('old' in snapshot));

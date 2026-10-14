@@ -99,17 +99,20 @@ export class Store {
   session() { return this.decrypt(this.setting('session')); }
   saveSession(session) { this.set('session', this.encrypt(session)); }
   clearSession() { this.db.prepare('DELETE FROM config WHERE key=?').run('session'); }
-  latest() {
+  latest(now = Date.now()) {
     const row = this.db.prepare('SELECT * FROM samples ORDER BY id DESC LIMIT 1').get();
     if (!row) return null;
+    const stale = Boolean(row.stale) || now - row.source_time > 10 * 60_000;
+    const charging = row.charging_json ? JSON.parse(row.charging_json) : null;
+    if (stale && charging) charging.estimatedFinishAt = null;
     return { sourceTime: row.source_time, receivedAt: row.received_at, mileage: row.mileage,
       soc: row.soc, range: row.range_km, speed: row.speed, gear: row.gear,
       driving: row.driving === null ? null : Boolean(row.driving),
       locked: row.locked === null ? null : Boolean(row.locked), ac: row.ac === null ? null : Boolean(row.ac),
-      stale: Boolean(row.stale), position: row.latitude === null ? null : { latitude: row.latitude, longitude: row.longitude },
+      stale, position: row.latitude === null ? null : { latitude: row.latitude, longitude: row.longitude },
       interiorTemperature: row.interior_temp ?? null,
       tires: row.tires_json ? JSON.parse(row.tires_json) : [],
-      charging: row.charging_json ? JSON.parse(row.charging_json) : null };
+      charging };
   }
   addSample(sample) {
     const last = this.latest();

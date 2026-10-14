@@ -54,6 +54,19 @@ async function load() {
     $('lastSuccessfulRenewal').textContent = renewal(health.lastSuccessfulRenewal);
     $('gatewayExpiry').textContent = date(health.gatewayExpiresAt);
     $('renewalCounts').textContent = `网关 ${health.gatewayRenewals || 0} 次 · 旧会话 ${health.legacyRenewals || 0} 次`;
+    const diagnostic = health.lastReadDiagnostics;
+    const diagnosticLabels = { soc: '电量', range: '续航', mileage: '里程', speed: '速度', gear: '挡位',
+      driving: '行驶状态', locked: '锁车状态', ac: '空调状态', interiorTemperature: '车内温度',
+      tires: '胎压', charging: '充电信息', position: '位置' };
+    const saveReasons = { saved: '已保存新采样', same_timestamp: '未保存：车端时间戳相同',
+      older_timestamp: '未保存：车端时间戳更早', not_saved: '未保存：需检查' };
+    $('diagQuery').textContent = diagnostic ? date(diagnostic.queriedAt) : '等待新版首次读取';
+    $('diagReported').textContent = diagnostic ? diagnostic.timestampMissing ? '时间缺失或无效（不能认定为新上报）' : date(diagnostic.reportedAt) : '--';
+    $('diagPrevious').textContent = date(diagnostic?.previousReportedAt);
+    $('diagSaved').textContent = diagnostic ? `${saveReasons[diagnostic.reason] || '未知'}${diagnostic.timestampMissing ? '；当前归一化时间使用接收时间' : ''}` : '--';
+    $('diagChanges').textContent = diagnostic ? diagnostic.previousReportedAt === null ? '首次采样，无对比基准'
+      : diagnostic.changedFields.length ? diagnostic.changedFields.map(field => diagnosticLabels[field] || '未知字段').join('、') : '无变化' : '--';
+    $('diagTimes').textContent = diagnostic ? diagnostic.timestampCandidates.map(item => `${item.field}.sts：${date(item.time)}`).join('；') : '--';
     $('position').textContent = s?.position ? `坐标 ${s.position.latitude.toFixed(5)}, ${s.position.longitude.toFixed(5)}` : '暂无可用坐标';
     if (s?.position) {
       const locationTime = s.sourceTime;

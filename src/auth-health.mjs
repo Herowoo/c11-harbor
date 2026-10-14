@@ -1,5 +1,6 @@
 const defaults = () => ({ lastPollAt: null, lastSuccessfulPollAt: null,
-  lastRenewal: null, lastSuccessfulRenewal: null, gatewayRenewals: 0, legacyRenewals: 0 });
+  lastRenewal: null, lastSuccessfulRenewal: null, gatewayRenewals: 0, legacyRenewals: 0,
+  lastReadDiagnostics: null });
 
 export function readAuthHealth(store) {
   return { ...defaults(), ...JSON.parse(store.setting('authHealth', '{}')) };
@@ -15,10 +16,11 @@ export function recordRenewal(store, event) {
   }
   store.set('authHealth', JSON.stringify(health));
 }
-export function recordPoll(store, ok, at = Date.now()) {
+export function recordPoll(store, ok, at = Date.now(), diagnostics = null) {
   const health = readAuthHealth(store);
   health.lastPollAt = at;
   if (ok) health.lastSuccessfulPollAt = at;
+  if (ok && diagnostics) health.lastReadDiagnostics = diagnostics;
   store.set('authHealth', JSON.stringify(health));
 }
 export function resetAuthHealth(store) { store.set('authHealth', JSON.stringify(defaults())); }

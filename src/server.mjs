@@ -9,6 +9,7 @@ import { ProtocolError } from './protocol.mjs';
 import { PairingGate } from './pairing.mjs';
 import { readSessionFile } from './session-file.mjs';
 import { readAuthHealth, recordRenewal, recordPoll, resetAuthHealth } from './auth-health.mjs';
+import { readDiagnostics } from './read-diagnostics.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const appVersion = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version;
@@ -92,8 +93,11 @@ async function refresh() {
     const client = connectedClient();
     const raw = await client.status();
     data.saveSession(client.s);
-    const saved = data.addSample(normalize(raw));
-    recordPoll(data, true);
+    const previous = data.latest();
+    const incoming = normalize(raw);
+    const saved = data.addSample(incoming);
+    const now = Date.now();
+    recordPoll(data, true, now, readDiagnostics(raw, incoming, previous, saved, now));
     lastError = null;
     return saved;
   } catch (error) {

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -15,7 +15,10 @@ test('mobile page, login, CSRF and read-only API work without car credentials', 
   try {
     const page = await fetch(base);
     assert.equal(page.status, 200);
-    assert.match(await page.text(), /出发前，看一眼/);
+    const html = await page.text();
+    assert.match(html, /出发前，看一眼/);
+    assert.match(html, /车况读取诊断/);
+    assert.match(html, /id="diagSaved"/);
     assert.equal((await fetch(base + '/api/state')).status, 401);
     const login = await fetch(base + '/api/login', { method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -26,7 +29,8 @@ test('mobile page, login, CSRF and read-only API work without car credentials', 
     const state = await fetch(base + '/api/state', { headers: { Cookie: cookie } });
     const snapshot = await state.json();
     assert.equal(snapshot.connected, false);
-    assert.equal(snapshot.version, '0.2.1');
+    assert.equal(snapshot.version, JSON.parse(readFileSync(new URL('../package.json', import.meta.url))).version);
+    assert.equal(snapshot.authHealth.lastReadDiagnostics, null);
     assert.equal(snapshot.authHealth.lastSuccessfulPollAt, null);
     assert.equal(snapshot.authHealth.gatewayRenewals, 0);
     assert.ok(!('old' in snapshot));

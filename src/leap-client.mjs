@@ -159,7 +159,9 @@ export class LeapClient {
     const response = await this.gateway(this.s.appRegion, '/app/app-signal-service/signal/info/query', 'POST', { vin: this.s.vin });
     const data = findObject(response, o => o.signalMap && typeof o.signalMap === 'object');
     if (!data || !Object.keys(data.signalMap).length) throw new ProtocolError('车况响应未返回 signalMap');
-    return { ...data.signalMap, sts: data.signalMap.sts ?? data.sts ?? response.data?.sts };
+    return { ...data.signalMap, sts: data.signalMap.sts ?? data.sts ?? response.data?.sts,
+      _timestampCandidates: { signalMap: data.signalMap.sts, envelope: data.sts,
+        outerData: response.data?.sts, outer: response.sts } };
   }
   async climate(action, temperature, pin) {
     if (!/^\d{4}$/.test(pin)) throw new ProtocolError('需要四位操作密码');

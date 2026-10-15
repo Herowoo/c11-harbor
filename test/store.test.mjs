@@ -117,14 +117,31 @@ test('older response cannot overwrite a refreshed snapshot; a new sample replace
   store.db.close();
 });
 
-test('snapshot changes never start a trip or alter the historical baseline for the next trip', () => {
+test('same-timestamp mileage observations form an explicitly uncertain trip without rewriting samples', () => {
   const store = new Store(mkdtempSync(join(tmpdir(), 'c11-snapshot-trip-')));
   const source = 1700000000000;
   store.addSample(normalize({ sts: source, '1318': 100, '1319': 0 }, source));
-  store.addSample(normalize({ sts: source, '1318': 105, '1319': 20 }, source + 1000));
-  assert.equal(store.setting('activeTrip'), null);
+  store.addSample(normalize({ sts: source, '1318': 100, '1319': 0 }, source + 5 * 60000));
   assert.equal(store.trips().length, 0);
-  store.addSample(normalize({ sts: source + 60000, '1318': 102, '1319': 20 }, source + 60000));
+  store.addSample(normalize({ sts: source, '1318': 105, '1319': 20 }, source + 15 * 60000));
   assert.equal(JSON.parse(store.setting('activeTrip')).startMileage, 100);
+  store.addSample(normalize({ sts: source, '1318': 105, '1319': 20 }, source + 21 * 60000));
+  assert.equal(store.trips().length, 1);
+  assert.equal(store.trips()[0].distanceKm, 5);
+  assert.equal(store.trips()[0].quality, '估算·车端时间未更新');
+  assert.equal(store.db.prepare('SELECT COUNT(*) AS count FROM samples').get().count, 1);
+  store.db.close();
+});
+
+test('unchanged mileage and old in-flight state do not fabricate a trip', () => {
+  const store = new Store(mkdtempSync(join(tmpdir(), 'c11-observation-no-trip-')));
+  const source = 1700000000000;
+  store.addSample(normalize({ sts: source, '1318': 100 }, source));
+  store.addSample(normalize({ sts: source, '1318': 100 }, source + 15 * 60000));
+  assert.equal(store.trips().length, 0);
+  store.set('activeTrip', JSON.stringify({ startedAt: source, startMileage: 100, lastMovingAt: source, lastMileage: 101 }));
+  store.addSample(normalize({ sts: source, '1318': 101 }, source + 20 * 60000));
+  assert.equal(store.setting('activeTrip'), 'null');
+  assert.equal(store.trips().length, 0);
   store.db.close();
 });

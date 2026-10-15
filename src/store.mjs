@@ -122,10 +122,10 @@ export class Store {
       charging };
   }
   addSample(sample) {
-    // Trip detection uses immutable historical samples, not refreshed display snapshots.
     const last = this.latest(Date.now(), false);
     if (last && sample.sourceTime === last.sourceTime) {
       this.set('latestSnapshot', JSON.stringify(sample));
+      this.detectTrip(sample);
       return false;
     }
     if (last && sample.sourceTime < last.sourceTime) return false;
@@ -136,39 +136,56 @@ export class Store {
       sample.position?.latitude ?? null, sample.position?.longitude ?? null, Number(sample.stale),
       sample.interiorTemperature ?? null, JSON.stringify(sample.tires ?? []), JSON.stringify(sample.charging ?? null));
     this.db.prepare('DELETE FROM config WHERE key=?').run('latestSnapshot');
-    this.detectTrip(sample, last);
+    this.detectTrip(sample);
     return true;
   }
-  detectTrip(sample, last) {
-    // A trip starts only after movement evidence, ends after 5 minutes of parked observations.
-    // Large gaps are marked uncertain; no route or precise energy use is fabricated.
-    if (sample.stale || sample.mileage === null) return;
+  detectTrip(sample) {
+    // Source timestamps may remain frozen while the signal values change. Use the NAS
+    // observation time for segmentation and explicitly mark such trips as uncertain.
+    const previous = JSON.parse(this.setting('lastTripObservation', 'null'));
+    const observed = { at: sample.receivedAt, sourceTime: sample.sourceTime,
+      mileage: sample.mileage, soc: sample.soc, position: sample.position,
+      stale: sample.stale, driving: sample.driving };
+    if (previous && observed.at <= previous.at) return;
+    this.set('lastTripObservation', JSON.stringify(observed));
+    if (!previous || sample.mileage === null || previous.mileage === null) return;
     const active = JSON.parse(this.setting('activeTrip', 'null'));
-    if (!active) {
-      const delta = last?.mileage === null || last?.mileage === undefined ? 0 : sample.mileage - last.mileage;
-      if (!last || delta <= 0.2 || delta > 200 || sample.sourceTime - last.sourceTime > 30 * 60_000) return;
-      this.set('activeTrip', JSON.stringify({ startedAt: last.sourceTime, startMileage: last.mileage,
-        startSoc: last.soc, startPosition: last.position, lastMovingAt: sample.sourceTime,
-        lastMileage: sample.mileage, lastSoc: sample.soc, lastPosition: sample.position, uncertain: false }));
+    // Do not combine an in-flight trip from the old source-time algorithm with
+    // the new receipt-time clock after an upgrade.
+    if (active && active.mode !== 'observed') {
+      this.set('activeTrip', 'null');
       return;
     }
-    if (sample.sourceTime - active.lastMovingAt > 30 * 60_000) active.uncertain = true;
+    if (!active) {
+      const delta = sample.mileage - previous.mileage;
+      if (delta <= 0.2 || delta > 200) return;
+      const vehicleTimeUncertain = sample.stale || previous.stale || sample.sourceTime === previous.sourceTime;
+      this.set('activeTrip', JSON.stringify({ mode: 'observed', startedAt: previous.at, startMileage: previous.mileage,
+        startSoc: previous.soc, startPosition: previous.position, lastMovingAt: observed.at,
+        lastMileage: sample.mileage, lastSoc: sample.soc, lastPosition: sample.position,
+        uncertain: observed.at - previous.at > 30 * 60_000, vehicleTimeUncertain }));
+      return;
+    }
+    if (observed.at - previous.at > 30 * 60_000) active.uncertain = true;
+    if (sample.stale || previous.stale || sample.sourceTime === previous.sourceTime) active.vehicleTimeUncertain = true;
     const delta = sample.mileage - active.lastMileage;
     if (delta < -1 || delta > 200) active.uncertain = true;
-    if ((delta > 0.1 && delta <= 200) || sample.driving) {
-      active.lastMovingAt = sample.sourceTime;
+    if ((delta > 0.1 && delta <= 200) || (!sample.stale && sample.driving)) {
+      active.lastMovingAt = observed.at;
       active.lastMileage = sample.mileage;
       active.lastSoc = sample.soc;
       active.lastPosition = sample.position || active.lastPosition;
-    } else if (sample.sourceTime - active.lastMovingAt >= 5 * 60_000) {
+    } else if (observed.at - active.lastMovingAt >= 5 * 60_000) {
       const distance = active.lastMileage - active.startMileage;
       if (distance >= 0.2 && distance <= 500) {
+        const quality = ['估算', active.vehicleTimeUncertain ? '车端时间未更新' : null,
+          active.uncertain ? '存在数据缺口' : null].filter(Boolean).join('·');
         this.db.prepare(`INSERT INTO trips(started_at,ended_at,start_mileage,end_mileage,distance_km,start_soc,end_soc,start_lat,start_lon,end_lat,end_lon,quality)
           VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`).run(active.startedAt, active.lastMovingAt, active.startMileage, active.lastMileage,
           Math.round(distance * 10) / 10, active.startSoc, active.lastSoc,
           active.startPosition?.latitude ?? null, active.startPosition?.longitude ?? null,
           active.lastPosition?.latitude ?? null, active.lastPosition?.longitude ?? null,
-          active.uncertain ? '估算·存在数据缺口' : '估算');
+          quality);
       }
       this.set('activeTrip', 'null'); return;
     }

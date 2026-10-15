@@ -1,6 +1,6 @@
 {
   "name": "c11-harbor",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "private": true,
   "type": "module",
   "engines": { "node": ">=24.13.1" },

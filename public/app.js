@@ -86,21 +86,17 @@ async function load() {
     $('setup').hidden = state.connected; $('disconnect').hidden = !state.connected;
     $('pairSetup').hidden = state.connected;
     if (state.lastError) $('connection').textContent = `需检查 · ${state.lastError}`;
-    const journal = await api('/api/trips');
+    const journal = await api('/api/daily-mileage');
+    $('mileageSync').textContent = journal.error ? `同步需检查：${journal.error} · 上次成功 ${date(journal.lastSuccessAt)}`
+      : journal.syncing ? '正在同步官方里程…' : `最近同步成功 ${date(journal.lastSuccessAt)}`;
     $('days').replaceChildren(...journal.days.map(day => {
-      const div = document.createElement('div'); div.className = 'day';
-      const title = document.createElement('span'); title.textContent = day.day;
-      const distance = document.createElement('b'); distance.textContent = fmt(day.distanceKm, ' km');
-      div.append(title, distance); return div;
+      const row = document.createElement('div'); row.className = 'mileage-day';
+      const title = document.createElement('div'); title.textContent = `${day.day}${day.provisional ? ' · 进行中' : ''}`;
+      const total = document.createElement('small'); total.textContent = `日末总里程 ${fmt(day.odometerEndKm, ' km')}${day.odometerQuality === 'inferred' ? '（按前日推断）' : ''}`;
+      title.append(total); const distance = document.createElement('b'); distance.textContent = fmt(day.distanceKm, ' km');
+      row.append(title, distance); return row;
     }));
-    $('trips').replaceChildren(...journal.trips.map(trip => {
-      const row = document.createElement('div'); row.className = 'trip';
-      const detail = document.createElement('div'); detail.textContent = `${date(trip.startedAt)} → ${date(trip.endedAt)}`;
-      const small = document.createElement('small'); small.textContent = `${trip.quality} · 电量 ${fmt(trip.startSoc, '%')} → ${fmt(trip.endSoc, '%')}`;
-      detail.append(small); const distance = document.createElement('b'); distance.textContent = fmt(trip.distanceKm, ' km');
-      row.append(detail, distance); return row;
-    }));
-    if (!journal.trips.length) message('trips', '还没有完整的行程。采集一段时间后会自动生成。');
+    if (!journal.days.length) message('days', '暂无每日里程。点击同步，或等待服务自动读取。');
   } catch (error) {
     if (error.message.includes('请登录')) { csrf = null; $('loginPanel').hidden = false; $('dashboard').hidden = true; $('logout').hidden = true; }
     else message('setupMessage', error.message);
@@ -148,6 +144,7 @@ submit('climateForm', async () => {
   await load();
 }, 'controlState');
 $('refresh').addEventListener('click', async () => { message('updated', '正在刷新…'); try { await api('/api/refresh', 'POST'); await load(); } catch (e) { message('updated', e.message); } });
+$('mileageRefresh').addEventListener('click', async () => { message('mileageSync', '正在同步…'); try { await api('/api/daily-mileage/refresh', 'POST'); await load(); } catch (e) { message('mileageSync', e.message); } });
 $('disconnect').addEventListener('click', async () => { if (!confirm('断开车辆接入？历史日志会保留。')) return;
   try { await api('/api/vehicle/disconnect', 'POST'); await load(); } catch (e) { message('setupMessage', e.message); } });
 $('logout').addEventListener('click', async () => { try { await api('/api/logout', 'POST'); } finally { csrf = null; await load(); } });

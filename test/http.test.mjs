@@ -33,6 +33,10 @@ test('mobile page, login, CSRF and read-only API work without car credentials', 
     assert.equal(snapshot.authHealth.lastReadDiagnostics, null);
     assert.equal(snapshot.authHealth.lastSuccessfulPollAt, null);
     assert.equal(snapshot.authHealth.gatewayRenewals, 0);
+    const daily = await fetch(base + '/api/daily-mileage', { headers: { Cookie: cookie } });
+    assert.equal(daily.status, 200);
+    assert.deepEqual((await daily.json()).days, []);
+    assert.equal((await fetch(base + '/api/daily-mileage/refresh', { method: 'POST', headers: { Cookie: cookie } })).status, 403);
     assert.ok(!('old' in snapshot));
     assert.ok(!('gateway' in snapshot));
     const rejected = await fetch(base + '/api/vehicle/disconnect', { method: 'POST', headers: { Cookie: cookie } });

@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { GLOBAL, USER, ProtocolError, gatewayHeaders, oldHeaders, oldParams, encryptPhone, encryptPin, deriveKey, jwtPayload, trustedHost, findObject } from './protocol.mjs';
+import { mileageRange } from './daily-mileage.mjs';
 
 const ok = value => ['0', '200'].includes(String(value));
 export class LeapClient {
@@ -167,6 +168,12 @@ export class LeapClient {
     return { ...data.signalMap, sts: data.signalMap.sts ?? data.sts ?? response.data?.sts,
       _timestampCandidates: { signalMap: data.signalMap.sts, envelope: data.sts,
         outerData: response.data?.sts, outer: response.sts } };
+  }
+  async dailyMileage(now = Date.now()) {
+    if (!this.s.old?.token || !this.s.vin) throw new ProtocolError('缺少里程查询会话或车辆', 'AUTH');
+    const params = oldParams(this.s, { vin: this.s.vin, ...mileageRange(now) });
+    return this.request('https://appgateway.leapmotor.com', '/carownerservice/v3/api/drivingrecord/mileage/energy/detail', {
+      query: params, headers: { ...oldHeaders(this.s), ...gatewayHeaders(this.s, params) } });
   }
   async climate(action, temperature, pin) {
     if (!/^\d{4}$/.test(pin)) throw new ProtocolError('需要四位操作密码');

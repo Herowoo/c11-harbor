@@ -10,6 +10,7 @@ import { PairingGate } from './pairing.mjs';
 import { readSessionFile } from './session-file.mjs';
 import { readAuthHealth, recordRenewal, recordPoll, resetAuthHealth } from './auth-health.mjs';
 import { readDiagnostics } from './read-diagnostics.mjs';
+import { parseDailyMileage } from './daily-mileage.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const appVersion = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version;
@@ -29,6 +30,8 @@ if (pairingUrl && (!/^https:\/\/[^/?#]+\/?$/.test(pairingUrl) || new URL(pairing
 }
 let busy = false;
 let commandBusy = false;
+let mileageBusy = false;
+let mileageError = null;
 let lastError = null;
 let addressCache = { coordinates: '', address: null, checkedAt: 0 };
 const allowControl = process.env.ALLOW_CONTROL === 'true';
@@ -112,6 +115,21 @@ function connectedClient() {
     onRenewal: event => recordRenewal(data, event),
   });
 }
+async function syncDailyMileage(force = false) {
+  if (mileageBusy || !data.session() || (!force && Date.now() - Number(data.setting('dailyMileageLastAttempt', '0')) < 6 * 3600_000)) return false;
+  mileageBusy = true;
+  data.set('dailyMileageLastAttempt', String(Date.now()));
+  try {
+    const client = connectedClient();
+    const rows = parseDailyMileage(await client.dailyMileage());
+    data.saveDailyMileage(rows);
+    mileageError = null;
+    return true;
+  } catch (error) {
+    mileageError = error instanceof ProtocolError ? error.message : '每日里程同步失败';
+    return false;
+  } finally { mileageBusy = false; }
+}
 const recent = () => ({ connected: Boolean(data.session()),
   vehicle: data.session()?.name || null,
   status: data.latest(),
@@ -189,6 +207,15 @@ const server = http.createServer(async (req, res) => {
         return json(res, 200, { address: await addressFor(current?.position), sourceTime: current?.sourceTime || null });
       }
       if (path === '/api/trips' && req.method === 'GET') return json(res, 200, { trips: data.trips(), days: data.days() });
+      if (path === '/api/daily-mileage' && req.method === 'GET') return json(res, 200, {
+        days: data.dailyMileage(), syncing: mileageBusy, lastSuccessAt: Number(data.setting('dailyMileageLastSuccess', '0')) || null,
+        lastAttemptAt: Number(data.setting('dailyMileageLastAttempt', '0')) || null, error: mileageError });
+      if (path === '/api/daily-mileage/refresh' && req.method === 'POST') {
+        if (!data.session()) return json(res, 400, { error: '尚未接入车辆' });
+        await syncDailyMileage(true);
+        return json(res, 200, { days: data.dailyMileage(), syncing: mileageBusy,
+          lastSuccessAt: Number(data.setting('dailyMileageLastSuccess', '0')) || null, error: mileageError });
+      }
       if (path === '/api/logout' && req.method === 'POST') {
         sessions.delete(cookie(req)); res.setHeader('Set-Cookie', 'harbor_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0');
         return json(res, 200, { ok: true });
@@ -287,9 +314,9 @@ async function refreshAfterCommand(client) {
 let timer;
 export function start() {
   server.listen(port, '0.0.0.0', () => console.log(`C11 Harbor listening on ${port}`));
-  timer = setInterval(() => { void refresh(); data.prune(); }, intervalMinutes * 60_000);
+  timer = setInterval(() => { void refresh(); void syncDailyMileage(); data.prune(); }, intervalMinutes * 60_000);
   timer.unref();
-  setTimeout(() => { void refresh(); }, 1000).unref();
+  setTimeout(() => { void refresh(); void syncDailyMileage(); }, 1000).unref();
   return server;
 }
 if (process.env.NODE_ENV !== 'test') start();

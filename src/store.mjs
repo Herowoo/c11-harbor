@@ -74,6 +74,9 @@ export class Store {
       CREATE TABLE IF NOT EXISTS commands (
         id TEXT PRIMARY KEY, action TEXT NOT NULL, requested_at INTEGER NOT NULL,
         status TEXT NOT NULL, message TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS daily_mileage (
+        day TEXT PRIMARY KEY, distance_km REAL NOT NULL, odometer_end_km REAL,
+        odometer_quality TEXT NOT NULL, provisional INTEGER NOT NULL, fetched_at INTEGER NOT NULL);
     `);
     // Additive migration retains existing samples, trips, encrypted credentials and vault key.
     const columns = new Set(this.db.prepare('PRAGMA table_info(samples)').all().map(column => column.name));
@@ -197,6 +200,29 @@ export class Store {
   days(limit = 14) {
     return this.db.prepare(`SELECT date(ended_at/1000,'unixepoch','+8 hours') AS day, ROUND(SUM(distance_km),1) AS distanceKm,
       COUNT(*) AS tripCount FROM trips GROUP BY day ORDER BY day DESC LIMIT ?`).all(limit);
+  }
+  saveDailyMileage(rows, fetchedAt = Date.now()) {
+    this.db.exec('BEGIN');
+    try {
+      const upsert = this.db.prepare(`INSERT INTO daily_mileage(day,distance_km,odometer_end_km,odometer_quality,provisional,fetched_at)
+        VALUES(?,?,?,?,?,?) ON CONFLICT(day) DO UPDATE SET distance_km=excluded.distance_km,
+        odometer_end_km=excluded.odometer_end_km,odometer_quality=excluded.odometer_quality,
+        provisional=excluded.provisional,fetched_at=excluded.fetched_at`);
+      for (const row of rows) {
+        const previousDay = new Date(Date.parse(`${row.day}T00:00:00Z`) - 86400_000).toISOString().slice(0, 10);
+        const prior = this.db.prepare('SELECT odometer_end_km FROM daily_mileage WHERE day = ?').get(previousDay);
+        const inferred = row.odometerEndKm === null && row.distanceKm === 0 && prior?.odometer_end_km != null;
+        upsert.run(row.day, row.distanceKm, row.odometerEndKm ?? (inferred ? prior.odometer_end_km : null),
+          row.odometerEndKm !== null ? 'official' : inferred ? 'inferred' : 'missing', Number(row.provisional), fetchedAt);
+      }
+      this.set('dailyMileageLastSuccess', String(fetchedAt));
+      this.db.exec('COMMIT');
+    } catch (error) { this.db.exec('ROLLBACK'); throw error; }
+  }
+  dailyMileage(limit = 90) {
+    return this.db.prepare(`SELECT day,distance_km AS distanceKm,odometer_end_km AS odometerEndKm,
+      odometer_quality AS odometerQuality,provisional,fetched_at AS fetchedAt
+      FROM daily_mileage ORDER BY day DESC LIMIT ?`).all(limit).map(row => ({ ...row, provisional: Boolean(row.provisional) }));
   }
   command(id, action, status, message) {
     this.db.prepare('INSERT INTO commands VALUES(?,?,?,?,?)').run(id, action, Date.now(), status, message);

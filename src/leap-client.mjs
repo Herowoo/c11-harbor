@@ -13,9 +13,12 @@ export class LeapClient {
     try { this.onSessionChange(this.s); }
     catch { throw new ProtocolError('会话保存失败，请检查 NAS 数据卷', 'STORAGE'); }
   }
-  renewal(kind, ok, error = null) {
-    this.onRenewal({ kind, ok, at: Date.now(), code: ok ? null :
-      ['AUTH', 'NETWORK', 'BUSINESS', 'STORAGE'].includes(error?.code) ? error.code : 'ERROR' });
+  renewal(kind, ok, error = null, stage = null) {
+    const businessCode = error?.code === 'BUSINESS'
+      ? /^零跑业务返回码 ([a-zA-Z0-9_-]{1,24})；/.exec(error.message)?.[1] || null : null;
+    this.onRenewal({ kind, ok, at: Date.now(), stage: stage || (kind === 'gateway' ? 'gateway-refresh' : 'legacy-refresh'),
+      code: ok ? null : ['AUTH', 'NETWORK', 'BUSINESS', 'STORAGE'].includes(error?.code) ? error.code : 'ERROR',
+      businessCode });
   }
   async request(host, path, { method = 'GET', headers = {}, query, json, form, check = true } = {}) {
     const url = new URL(path, trustedHost(host));
@@ -83,6 +86,7 @@ export class LeapClient {
       method: 'POST', json: body, headers: gatewayHeaders(this.s, body, false) }));
   }
   async refreshOld() {
+    let stage = 'legacy-refresh';
     try {
     if (!this.s.phone || !this.s.old?.refreshToken) throw new ProtocolError('缺少旧会话续期信息，请重新接入', 'AUTH');
     const params = oldParams(this.s, { accountId: this.s.old.accountId, accountNumber: encryptPhone(this.s.phone) }, true);
@@ -93,9 +97,10 @@ export class LeapClient {
     this.s.old = { ...this.s.old, token: data.token, refreshToken: data.refreshToken || this.s.old.refreshToken,
       expiresAt: Date.now() + (Number(data.tokenExpired) || 21600) * 1000 };
     this.checkpoint();
+    stage = 'gateway-exchange';
     await this.exchange();
     this.renewal('legacy', true);
-    } catch (error) { this.renewal('legacy', false, error); throw error; }
+    } catch (error) { this.renewal('legacy', false, error, stage); throw error; }
   }
   async refreshGateway() {
     try {

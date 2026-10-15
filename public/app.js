@@ -5,7 +5,8 @@ const fmt = (value, unit = '') => value === null || value === undefined ? '--' :
 const remaining = minutes => minutes === null || minutes === undefined ? '车辆未上报'
   : minutes < 60 ? `约 ${minutes} 分钟` : `约 ${Math.floor(minutes / 60)} 小时 ${minutes % 60} 分钟`;
 const renewal = event => !event ? '尚未发生'
-  : `${date(event.at)} · ${event.kind === 'gateway' ? '网关' : '旧会话'} · ${event.ok ? '成功' : `失败（${event.code || 'ERROR'}）`}`;
+  : `${date(event.at)} · ${({ 'gateway-refresh': '网关续期', 'legacy-refresh': '旧会话续期',
+    'gateway-exchange': '网关交换' })[event.stage] || (event.kind === 'gateway' ? '网关' : '旧会话')} · ${event.ok ? '成功' : `失败（${event.code || 'ERROR'}${event.businessCode ? ` / 业务码 ${event.businessCode}` : ''}）`}`;
 async function api(path, method = 'GET', payload) {
   const response = await fetch(path, { method, credentials: 'same-origin', headers: {
     ...(payload ? { 'Content-Type': 'application/json' } : {}), ...(method !== 'GET' ? { 'x-harbor-csrf': csrf } : {}) },
@@ -51,6 +52,9 @@ async function load() {
     $('appVersion').textContent = `v${state.version || '--'}${state.revision ? ` · ${state.revision.slice(0, 7)}` : ''}`;
     $('lastSuccessfulPoll').textContent = date(health.lastSuccessfulPollAt);
     $('lastRenewal').textContent = renewal(health.lastRenewal);
+    $('lastGatewayAttempt').textContent = renewal(health.lastGatewayAttempt);
+    $('lastLegacyAttempt').textContent = renewal(health.lastLegacyAttempt);
+    $('refreshTokenPresence').textContent = `网关 ${health.gatewayRefreshTokenPresent ? '有' : '无'} · 旧会话 ${health.legacyRefreshTokenPresent ? '有' : '无'}`;
     $('lastSuccessfulRenewal').textContent = renewal(health.lastSuccessfulRenewal);
     $('gatewayExpiry').textContent = date(health.gatewayExpiresAt);
     $('renewalCounts').textContent = `网关 ${health.gatewayRenewals || 0} 次 · 旧会话 ${health.legacyRenewals || 0} 次`;

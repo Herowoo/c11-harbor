@@ -120,7 +120,9 @@ const recent = () => ({ connected: Boolean(data.session()),
   sampling: busy, activeTrip: JSON.parse(data.setting('activeTrip', 'null')) !== null,
   version: appVersion, revision: process.env.APP_REVISION || null,
   authHealth: { ...readAuthHealth(data), gatewayExpiresAt: data.session()?.gateway?.expiresAt ?? null,
-    oldExpiresAt: data.session()?.old?.expiresAt ?? null } });
+    oldExpiresAt: data.session()?.old?.expiresAt ?? null,
+    gatewayRefreshTokenPresent: Boolean(data.session()?.gateway?.refreshToken),
+    legacyRefreshTokenPresent: Boolean(data.session()?.old?.refreshToken) } });
 
 const staticFiles = {
   '/': ['index.html', 'text/html; charset=utf-8'],

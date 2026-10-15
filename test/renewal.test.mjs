@@ -56,3 +56,36 @@ test('session health records successful polling independently of cached telemetr
   assert.equal(health.lastSuccessfulRenewal.at, 300);
   assert.ok(!settings.get('authHealth').includes('must-not-leak'));
 });
+
+test('gateway and legacy business failures keep separate safe stages and business codes', async () => {
+  const settings = new Map();
+  const store = { setting: (k, fallback) => settings.get(k) ?? fallback, set: (k, value) => settings.set(k, value) };
+  const client = new LeapClient(session(), async url => {
+    if (url.pathname.endsWith('/token/v1/refresh')) return new Response(JSON.stringify({ result: 39 }));
+    if (url.pathname.endsWith('/getnewtoken')) return new Response(JSON.stringify({ result: 45,
+      msg: 'private-token-must-not-leak' }));
+    throw new Error('unexpected fixture URL');
+  }, { onRenewal: event => recordRenewal(store, event) });
+  await assert.rejects(client.refreshGateway(), error => error.code === 'BUSINESS');
+  const health = readAuthHealth(store);
+  assert.equal(health.lastGatewayAttempt.stage, 'gateway-refresh');
+  assert.equal(health.lastGatewayAttempt.code, 'AUTH');
+  assert.equal(health.lastLegacyAttempt.stage, 'legacy-refresh');
+  assert.equal(health.lastLegacyAttempt.businessCode, '45');
+  assert.equal(JSON.stringify(health).includes('private-token-must-not-leak'), false);
+});
+
+test('legacy token acceptance followed by gateway exchange rejection is identified', async () => {
+  const events = [];
+  const saved = [];
+  const client = new LeapClient(session(), async url => {
+    if (url.pathname.endsWith('/getnewtoken')) return new Response(JSON.stringify({ result: 0, data: {
+      token: 'rotated-token', refreshToken: 'rotated-refresh', tokenExpired: 21600 } }));
+    if (url.pathname.endsWith('/account/v1/login')) return new Response(JSON.stringify({ result: 45 }));
+    throw new Error('unexpected fixture URL');
+  }, { onSessionChange: value => saved.push(structuredClone(value)), onRenewal: event => events.push(event) });
+  await assert.rejects(client.refreshOld(), error => error.code === 'BUSINESS');
+  assert.equal(saved.at(-1).old.refreshToken, 'rotated-refresh');
+  assert.equal(events.at(-1).stage, 'gateway-exchange');
+  assert.equal(events.at(-1).businessCode, '45');
+});

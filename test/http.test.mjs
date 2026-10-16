@@ -19,6 +19,10 @@ test('mobile page, login, CSRF and read-only API work without car credentials', 
     assert.match(html, /出发前，看一眼/);
     assert.match(html, /车况读取诊断/);
     assert.match(html, /id="diagSaved"/);
+    assert.match(html, /id="calendarGrid"/);
+    assert.match(html, /id="sevenDayChart"/);
+    assert.match(html, /type="module"/);
+    assert.equal((await fetch(base + '/mileage-view.js')).status, 200);
     assert.equal((await fetch(base + '/api/state')).status, 401);
     const login = await fetch(base + '/api/login', { method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -36,6 +40,10 @@ test('mobile page, login, CSRF and read-only API work without car credentials', 
     const daily = await fetch(base + '/api/daily-mileage', { headers: { Cookie: cookie } });
     assert.equal(daily.status, 200);
     assert.deepEqual((await daily.json()).days, []);
+    const monthly = await fetch(base + '/api/daily-mileage?month=2024-04', { headers: { Cookie: cookie } });
+    assert.equal(monthly.status, 200);
+    assert.deepEqual((await monthly.json()).days, []);
+    assert.equal((await fetch(base + '/api/daily-mileage?month=bad', { headers: { Cookie: cookie } })).status, 400);
     assert.equal((await fetch(base + '/api/daily-mileage/refresh', { method: 'POST', headers: { Cookie: cookie } })).status, 403);
     assert.ok(!('old' in snapshot));
     assert.ok(!('gateway' in snapshot));

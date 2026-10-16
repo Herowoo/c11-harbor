@@ -36,6 +36,8 @@ test('daily mileage persists across restart, corrects today, and never treats a 
   assert.equal(store.dailyMileage()[0].distanceKm, 8);
   assert.equal(store.dailyMileage()[0].odometerEndKm, 1242);
   assert.equal(store.dailyMileage().length, 5);
+  assert.deepEqual(store.dailyMileageMonth('2024-04').map(row => row.day), store.dailyMileage().map(row => row.day));
+  assert.deepEqual(store.dailyMileageMonth('2024-03'), []);
   store.db.close();
 });
 

@@ -145,11 +145,13 @@ const recent = () => ({ connected: Boolean(data.session()),
 const staticFiles = {
   '/': ['index.html', 'text/html; charset=utf-8'],
   '/app.js': ['app.js', 'text/javascript; charset=utf-8'],
+  '/mileage-view.js': ['mileage-view.js', 'text/javascript; charset=utf-8'],
   '/style.css': ['style.css', 'text/css; charset=utf-8']
 };
 const server = http.createServer(async (req, res) => {
   try {
-    const path = new URL(req.url, 'http://local').pathname;
+    const requestUrl = new URL(req.url, 'http://local');
+    const path = requestUrl.pathname;
     if (path === '/health') return json(res, 200, { ok: true, version: appVersion });
     if (staticFiles[path] && req.method === 'GET') {
       const [name, type] = staticFiles[path];
@@ -207,9 +209,13 @@ const server = http.createServer(async (req, res) => {
         return json(res, 200, { address: await addressFor(current?.position), sourceTime: current?.sourceTime || null });
       }
       if (path === '/api/trips' && req.method === 'GET') return json(res, 200, { trips: data.trips(), days: data.days() });
-      if (path === '/api/daily-mileage' && req.method === 'GET') return json(res, 200, {
-        days: data.dailyMileage(), syncing: mileageBusy, lastSuccessAt: Number(data.setting('dailyMileageLastSuccess', '0')) || null,
+      if (path === '/api/daily-mileage' && req.method === 'GET') {
+        const month = requestUrl.searchParams.get('month');
+        if (month && !/^20\d{2}-(0[1-9]|1[0-2])$/.test(month)) throw new ProtocolError('月份格式应为 YYYY-MM（2000–2099）');
+        return json(res, 200, {
+        days: month ? data.dailyMileageMonth(month) : data.dailyMileage(), syncing: mileageBusy, lastSuccessAt: Number(data.setting('dailyMileageLastSuccess', '0')) || null,
         lastAttemptAt: Number(data.setting('dailyMileageLastAttempt', '0')) || null, error: mileageError });
+      }
       if (path === '/api/daily-mileage/refresh' && req.method === 'POST') {
         if (!data.session()) return json(res, 400, { error: '尚未接入车辆' });
         await syncDailyMileage(true);

@@ -224,6 +224,13 @@ export class Store {
       odometer_quality AS odometerQuality,provisional,fetched_at AS fetchedAt
       FROM daily_mileage ORDER BY day DESC LIMIT ?`).all(limit).map(row => ({ ...row, provisional: Boolean(row.provisional) }));
   }
+  dailyMileageMonth(month) {
+    return this.db.prepare(`SELECT day,distance_km AS distanceKm,odometer_end_km AS odometerEndKm,
+      odometer_quality AS odometerQuality,provisional,fetched_at AS fetchedAt
+      FROM daily_mileage WHERE day >= ? AND day < ? ORDER BY day DESC`)
+      .all(`${month}-01`, `${new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5)), 1)).toISOString().slice(0, 7)}-01`)
+      .map(row => ({ ...row, provisional: Boolean(row.provisional) }));
+  }
   command(id, action, status, message) {
     this.db.prepare('INSERT INTO commands VALUES(?,?,?,?,?)').run(id, action, Date.now(), status, message);
   }

@@ -1,4 +1,9 @@
+import { calendarDays, chinaMonth, chinaToday, recentSevenDays, shiftMonth } from './mileage-view.js';
+
 let csrf = null;
+let mileageMonth = chinaMonth();
+let mileageView = 'calendar';
+let mileageSelection = null;
 const $ = id => document.getElementById(id);
 const date = value => value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '--';
 const fmt = (value, unit = '') => value === null || value === undefined ? '--' : `${value}${unit}`;
@@ -16,6 +21,64 @@ async function api(path, method = 'GET', payload) {
   return value;
 }
 const message = (id, content) => { $(id).textContent = content || ''; };
+const mileageDetail = row => row ? `${row.day}${row.provisional ? '（进行中）' : ''} · 当日 ${fmt(row.distanceKm, ' km')} · 日末总里程 ${fmt(row.odometerEndKm, ' km')}${row.odometerQuality === 'inferred' ? '（按前日推断）' : ''}` : '';
+function renderMileage(monthRows, recentRows) {
+  const calendar = mileageView === 'calendar';
+  $('calendarView').hidden = !calendar; $('chartView').hidden = calendar;
+  $('calendarTab').setAttribute('aria-pressed', String(calendar));
+  $('chartTab').setAttribute('aria-pressed', String(!calendar));
+  $('monthLabel').textContent = `${mileageMonth.slice(0, 4)} 年 ${Number(mileageMonth.slice(5))} 月`;
+  $('monthNext').disabled = mileageMonth >= chinaMonth();
+  const monthTotal = Math.round(monthRows.reduce((sum, row) => sum + row.distanceKm, 0) * 10) / 10;
+  $('monthSummary').textContent = monthRows.length ? `已记录 ${monthRows.length} 天 · 合计 ${monthTotal} km` : '本月暂无里程记录';
+  const cells = calendarDays(mileageMonth, monthRows);
+  if (!mileageSelection || !cells.some(cell => cell?.day === mileageSelection && cell.row)) {
+    mileageSelection = cells.find(cell => cell?.isToday && cell.row)?.day || [...cells].reverse().find(cell => cell?.row)?.day || null;
+  }
+  $('calendarGrid').replaceChildren(...cells.map(cell => {
+    if (!cell) { const gap = document.createElement('span'); gap.className = 'calendar-gap'; return gap; }
+    const button = document.createElement('button'); button.type = 'button'; button.className = 'calendar-cell';
+    button.classList.toggle('has-data', Boolean(cell.row)); button.classList.toggle('today', cell.isToday);
+    button.setAttribute('aria-label', cell.row ? mileageDetail(cell.row) : `${cell.day} · ${cell.isFuture ? '尚未到来' : '无记录'}`);
+    button.setAttribute('aria-pressed', String(cell.day === mileageSelection));
+    const number = document.createElement('span'); number.textContent = String(cell.number);
+    const distance = document.createElement('b'); distance.textContent = cell.row ? `${cell.row.distanceKm} km` : cell.isFuture ? '' : '—';
+    button.append(number, distance);
+    if (cell.row) button.addEventListener('click', () => { mileageSelection = cell.day; renderMileage(monthRows, recentRows); });
+    else button.disabled = true;
+    return button;
+  }));
+  $('mileageDetail').textContent = mileageSelection ? mileageDetail(monthRows.find(row => row.day === mileageSelection))
+    : '本月尚无记录；NAS 只可回填官方提供的近 7 日，后续日期会持续保存。';
+  const seven = recentSevenDays(recentRows);
+  $('sevenDayChart').setAttribute('aria-label', seven.map(item => `${item.day} ${item.row ? `${item.row.distanceKm} km` : '无记录'}`).join('；'));
+  const max = Math.max(1, ...seven.map(day => day.row?.distanceKm || 0));
+  $('sevenDayChart').replaceChildren(...seven.map(item => {
+    const column = document.createElement('div'); column.className = 'chart-column';
+    const value = document.createElement('b'); value.textContent = item.row ? `${item.row.distanceKm}${item.row.provisional ? '*' : ''}` : '—';
+    const track = document.createElement('div'); track.className = 'chart-track';
+    const bar = document.createElement('span'); bar.className = 'chart-bar';
+    bar.classList.toggle('missing', !item.row);
+    bar.style.height = item.row ? `${Math.max(4, item.row.distanceKm / max * 100)}%` : '0';
+    track.append(bar);
+    const label = document.createElement('small'); label.textContent = item.day.slice(5).replace('-', '/');
+    column.title = item.row ? mileageDetail(item.row) : `${item.day} · 无记录`;
+    column.append(value, track, label); return column;
+  }));
+  const known = seven.filter(item => item.row);
+  const total = Math.round(known.reduce((sum, item) => sum + item.row.distanceKm, 0) * 10) / 10;
+  $('chartSummary').textContent = known.length ? `近 7 日已记录 ${known.length} 天 · 合计 ${total} km${known.some(item => item.row.provisional) ? '；* 今天进行中' : ''}${known.length < 7 ? '；缺失日期未按 0 km 计算' : ''}` : '近 7 日暂无记录';
+}
+async function loadMileage() {
+  const requestedMonth = mileageMonth;
+  const [recent, month] = await Promise.all([
+    api('/api/daily-mileage'), api(`/api/daily-mileage?month=${encodeURIComponent(requestedMonth)}`)
+  ]);
+  if (requestedMonth !== mileageMonth) return;
+  $('mileageSync').textContent = recent.error ? `同步需检查：${recent.error} · 上次成功 ${date(recent.lastSuccessAt)}`
+    : recent.syncing ? '正在同步官方里程…' : `最近同步成功 ${date(recent.lastSuccessAt)}`;
+  renderMileage(month.days, recent.days);
+}
 async function load() {
   try {
     if (!csrf) csrf = (await api('/api/session')).csrf;
@@ -86,17 +149,7 @@ async function load() {
     $('setup').hidden = state.connected; $('disconnect').hidden = !state.connected;
     $('pairSetup').hidden = state.connected;
     if (state.lastError) $('connection').textContent = `需检查 · ${state.lastError}`;
-    const journal = await api('/api/daily-mileage');
-    $('mileageSync').textContent = journal.error ? `同步需检查：${journal.error} · 上次成功 ${date(journal.lastSuccessAt)}`
-      : journal.syncing ? '正在同步官方里程…' : `最近同步成功 ${date(journal.lastSuccessAt)}`;
-    $('days').replaceChildren(...journal.days.map(day => {
-      const row = document.createElement('div'); row.className = 'mileage-day';
-      const title = document.createElement('div'); title.textContent = `${day.day}${day.provisional ? ' · 进行中' : ''}`;
-      const total = document.createElement('small'); total.textContent = `日末总里程 ${fmt(day.odometerEndKm, ' km')}${day.odometerQuality === 'inferred' ? '（按前日推断）' : ''}`;
-      title.append(total); const distance = document.createElement('b'); distance.textContent = fmt(day.distanceKm, ' km');
-      row.append(title, distance); return row;
-    }));
-    if (!journal.days.length) message('days', '暂无每日里程。点击同步，或等待服务自动读取。');
+    await loadMileage();
   } catch (error) {
     if (error.message.includes('请登录')) { csrf = null; $('loginPanel').hidden = false; $('dashboard').hidden = true; $('logout').hidden = true; }
     else message('setupMessage', error.message);
@@ -145,6 +198,10 @@ submit('climateForm', async () => {
 }, 'controlState');
 $('refresh').addEventListener('click', async () => { message('updated', '正在刷新…'); try { await api('/api/refresh', 'POST'); await load(); } catch (e) { message('updated', e.message); } });
 $('mileageRefresh').addEventListener('click', async () => { message('mileageSync', '正在同步…'); try { await api('/api/daily-mileage/refresh', 'POST'); await load(); } catch (e) { message('mileageSync', e.message); } });
+$('calendarTab').addEventListener('click', () => { mileageView = 'calendar'; void loadMileage(); });
+$('chartTab').addEventListener('click', () => { mileageView = 'chart'; void loadMileage(); });
+$('monthPrev').addEventListener('click', () => { mileageMonth = shiftMonth(mileageMonth, -1); mileageSelection = null; void loadMileage(); });
+$('monthNext').addEventListener('click', () => { if (mileageMonth >= chinaMonth()) return; mileageMonth = shiftMonth(mileageMonth, 1); mileageSelection = null; void loadMileage(); });
 $('disconnect').addEventListener('click', async () => { if (!confirm('断开车辆接入？历史日志会保留。')) return;
   try { await api('/api/vehicle/disconnect', 'POST'); await load(); } catch (e) { message('setupMessage', e.message); } });
 $('logout').addEventListener('click', async () => { try { await api('/api/logout', 'POST'); } finally { csrf = null; await load(); } });
